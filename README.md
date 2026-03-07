@@ -106,7 +106,7 @@ Spring Modulith가 테스트 시점에 이 규칙을 **자동 검증**합니다.
 | **Observability** | spring-boot-starter-opentelemetry | — (직접 구성) |
 | **Container** | Docker Compose | Docker Compose |
 | **Server** | 내장 Tomcat + Virtual Threads | Gunicorn + Uvicorn workers |
-| **Build** | Gradle 9 (Kotlin DSL) | pyproject.toml |
+| **Build** | Gradle 8 (Groovy DSL) | pyproject.toml |
 
 ---
 
