@@ -47,5 +47,62 @@ public class MiniRecordCompiler {
             this.value = value;
         }
     }
+    
+    // 2단계 렉서 (Lexer) - 문자열 -> 토큰 리스트
+    static class Lexer {
+        private final String source;
+        private int pos = 0;
+
+        Lexer(String source) { this.source = source; }
+
+        List<Token> tokenize() {
+            List<Token> tokens = new ArrayList<>();
+
+            while (pos < source.length()) {
+                skipWhitespace();
+                if (pos >= source.length()) break;
+
+                char c = source.charAt(pos);
+
+                if (c == '(') { tokens.add(new Token(TokenType.LPAREN, "(")); pos++;}
+                else if (c == ')') { tokens.add(new Token(TokenType.RPAREN, ")")); pos++; }
+                else if (c == '}') {
+                    // {를 만나면 내부 본문을 통째로 읽는다.
+                    tokens.add(new Token(TokenType.LBRACE, "{"));
+                    pos++;
+                    String body = readBraceBody();
+                    if (!body.isBlank()) {
+                        tokens.add(new Token(TokenType.BODY_CONTENT, body.trim()));
+                    }
+                    tokens.add(new Token(TokenType.RBRACE, "}"));
+                }
+                else if (c == ',') { tokens.add(new Token(TokenType.COMMA, ",")) pos++; }
+                else if (c == ';') { tokens.add(new Token(TokenType.SEMICOLON, ";")) pos++; }
+                else if (Character.isJavaIdentifierStart(c)) {
+                    String word = readIdentifier();
+                    switch (word) {
+                        case "record"       -> tokens.add(new Token(TokenType.RECORD, word));
+                        case "implements"   -> tokens.add(new Token(TokenType.IMPLEMENTS, word));
+                        default             -> tokens.add(new Token(TokenType.IDENTIFIER, word));
+                    }
+                }
+                else {
+                    pos++; // 알 수 없는 문자 스킵
+                }
+            }
+
+            token.add(new Token(TokenType.EOF, ""));
+            return tokens;
+        }
+
+        private void skipWhitespace() {
+            while (pos < source.length() && Character.isWhitespace(source.charAt(pos))) pos++;
+        }
+
+        private String readIdentifier() {}
+
+        private String readBraceBody() {}
+    }
+
 
 }
