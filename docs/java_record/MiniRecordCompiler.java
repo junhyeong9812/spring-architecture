@@ -172,4 +172,66 @@ public class MiniRecordCompiler {
         RecordDeclaraction(String name) {this.name = name; }
     }
 
+    // ─────────────────────────────────────────────
+    // 4단계: 파서 (Parser) — 토큰 → AST
+    // ─────────────────────────────────────────────
+    static class Parser {
+        private final List<Token> tokens;
+        private int pos = 0;
+
+        Parser(List<Token> tokens) {
+            this.tokens = tokens;
+        }
+
+        RecordDeclaration parse() {
+            expect(TokenType.RECORD);                     // 'record'
+            String name = expect(TokenType.IDENTIFIER).value;  // 클래스명
+            RecordDeclaration decl = new RecordDeclaration(name);
+
+            // 컴포넌트 파싱: (Type name, Type name, ...)
+            expect(TokenType.LPAREN);
+            if (peek().type != TokenType.RPAREN) {
+                do {
+                    String type = expect(TokenType.IDENTIFIER).value;
+                    String fieldName = expect(TokenType.IDENTIFIER).value;
+                    decl.components.add(new RecordComponent(type, fieldName));
+                } while (matchAndConsume(TokenType.COMMA));
+            }
+            expect(TokenType.RPAREN);
+
+            // implements 절 파싱 (선택)
+            if (peek().type == TokenType.IMPLEMENTS) {
+                advance();
+                do {
+                    decl.implementsList.add(expect(TokenType.IDENTIFIER).value);
+                } while (matchAndConsume(TokenType.COMMA));
+            }
+
+            // 본문 파싱
+            expect(TokenType.LBRACE);
+            if (peek().type == TokenType.BODY_CONTENT) {
+                decl.compactConstructorBody = advance().value;
+            }
+            expect(TokenType.RBRACE);
+
+            return decl;
+        }
+
+        private Token peek() { return tokens.get(pos); }
+        private Token advance() { return tokens.get(pos++); }
+
+        private Token expect(TokenType type) {
+            Token t = advance();
+            if (t.type != type) {
+                throw new RuntimeException(
+                        "파싱 에러: " + type + " 을 기대했지만 " + t + " 을 만남 (위치: " + pos + ")");
+            }
+            return t;
+        }
+
+        private boolean matchAndConsume(TokenType type) {
+            if (peek().type == type) { advance(); return true; }
+            return false;
+        }
+    }
 }
