@@ -142,5 +142,25 @@ public class MiniRecordCompiler {
         }
     }
 
+    // ─────────────────────────────────────────────
+    // 3단계: AST 노드 정의
+    // ─────────────────────────────────────────────
+    static class RecordComponent {
+        final String type;
+        final String name;
+
+        RecordComponent(String type, String name) {
+            this.type = type;
+            this.name = name;
+        }
+
+        boolean isPrimitive() {
+            return switch (type) {
+                case "int", "long", "short", "byte",
+                     "float", "double", "char", "boolean" -> true;
+                default -> false;
+            };
+        }
+    }
 
 }
