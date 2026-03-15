@@ -163,4 +163,13 @@ public class MiniRecordCompiler {
         }
     }
 
+    static class RecordDeclaration {
+        String name;
+        List<RecordComponent> components = new ArrayList<>();
+        List<String> implementsList = new ArrayList<>();
+        String compactConstructorBody = null; // 컴팩트 생성자 분문
+
+        RecordDeclaraction(String name) {this.name = name; }
+    }
+
 }
