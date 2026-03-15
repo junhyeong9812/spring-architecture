@@ -234,4 +234,64 @@ public class MiniRecordCompiler {
             return false;
         }
     }
+
+    static class CodeGenerator {
+        private final RecordDeclaration decl;
+        private final StringBuilder sb = new StringBuilder();
+        private int indent = 0;
+
+        CodeGenerator(RecordDeclaration decl) {this.decl = decl; }
+
+        String generate() {
+            generateImports();
+            generateClassHeader();
+            generateFields();
+            generateConstructor();
+            generateAccessors();
+            generateToString();
+            generateEquals();
+            generateHashCode();
+            line("}");
+            return sb.toString();
+        }
+
+        private void generateImports() {
+            line("import java.util.Objects;");
+            line("");
+        }
+
+        // 클래스 선언
+        private void generateClassHeader() {
+            StringBuilder header = new StringBuilder();
+            header.append("public final calss ").append(decl.name);
+            header.append(" extends Record");
+
+            if (!decl.implementsList.isEmpty()) {
+                header.append(" implements ");
+                header.append(String.join(", ", decl.implementsList));
+            }
+            header.append(" {");
+            line(header.toString());
+            line("");
+            indent++:
+        }
+
+        // private final 필드 생성
+        private void generateFields() {
+            line("// ── 컴파일러 생성: private final 필드 ──");
+            for (RecordComponent comp : decl.components) {
+                line("private final " + comp.type + " " + comp.name + ";");
+            }
+            line("");
+        }
+
+        // 정규 생성자.
+        private void generateConstructor() {
+            line("")
+        }
+
+        private void line(String text) {
+            sb.append("    ".repeat(indent)).append(text).append("\n");
+        }
+    }
 }
