@@ -22,8 +22,10 @@ import java.util.stream.*;
  *      - hashCode()
  */
 public class MiniRecordCompiler {
-    
+
+    // ─────────────────────────────────────────────
     // 1단계: 토큰 정의
+    // ─────────────────────────────────────────────
     enum TokenType {
         RECORD,         // 'record' 키워드
         IMPLEMENTS,     // 'implements' 키워드
@@ -46,14 +48,23 @@ public class MiniRecordCompiler {
             this.type = type;
             this.value = value;
         }
+
+        @Override
+        public String toString() {
+            return type + "(\"" + value + "\")";
+        }
     }
-    
-    // 2단계 렉서 (Lexer) - 문자열 -> 토큰 리스트
+
+    // ─────────────────────────────────────────────
+    // 2단계: 렉서 (Lexer) — 문자열 → 토큰 리스트
+    // ─────────────────────────────────────────────
     static class Lexer {
         private final String source;
         private int pos = 0;
 
-        Lexer(String source) { this.source = source; }
+        Lexer(String source) {
+            this.source = source;
+        }
 
         List<Token> tokenize() {
             List<Token> tokens = new ArrayList<>();
@@ -64,10 +75,10 @@ public class MiniRecordCompiler {
 
                 char c = source.charAt(pos);
 
-                if (c == '(') { tokens.add(new Token(TokenType.LPAREN, "(")); pos++;}
+                if (c == '(') { tokens.add(new Token(TokenType.LPAREN, "(")); pos++; }
                 else if (c == ')') { tokens.add(new Token(TokenType.RPAREN, ")")); pos++; }
-                else if (c == '}') {
-                    // {를 만나면 내부 본문을 통째로 읽는다.
+                else if (c == '{') {
+                    // { 를 만나면 내부 본문을 통째로 읽는다
                     tokens.add(new Token(TokenType.LBRACE, "{"));
                     pos++;
                     String body = readBraceBody();
@@ -76,14 +87,14 @@ public class MiniRecordCompiler {
                     }
                     tokens.add(new Token(TokenType.RBRACE, "}"));
                 }
-                else if (c == ',') { tokens.add(new Token(TokenType.COMMA, ",")) pos++; }
-                else if (c == ';') { tokens.add(new Token(TokenType.SEMICOLON, ";")) pos++; }
+                else if (c == ',') { tokens.add(new Token(TokenType.COMMA, ",")); pos++; }
+                else if (c == ';') { tokens.add(new Token(TokenType.SEMICOLON, ";")); pos++; }
                 else if (Character.isJavaIdentifierStart(c)) {
                     String word = readIdentifier();
                     switch (word) {
-                        case "record"       -> tokens.add(new Token(TokenType.RECORD, word));
-                        case "implements"   -> tokens.add(new Token(TokenType.IMPLEMENTS, word));
-                        default             -> tokens.add(new Token(TokenType.IDENTIFIER, word));
+                        case "record"     -> tokens.add(new Token(TokenType.RECORD, word));
+                        case "implements" -> tokens.add(new Token(TokenType.IMPLEMENTS, word));
+                        default           -> tokens.add(new Token(TokenType.IDENTIFIER, word));
                     }
                 }
                 else {
@@ -91,7 +102,7 @@ public class MiniRecordCompiler {
                 }
             }
 
-            token.add(new Token(TokenType.EOF, ""));
+            tokens.add(new Token(TokenType.EOF, ""));
             return tokens;
         }
 
@@ -99,9 +110,36 @@ public class MiniRecordCompiler {
             while (pos < source.length() && Character.isWhitespace(source.charAt(pos))) pos++;
         }
 
-        private String readIdentifier() {}
+        private String readIdentifier() {
+            int start = pos;
+            while (pos < source.length() && (Character.isJavaIdentifierPart(source.charAt(pos)) || source.charAt(pos) == '.')) {
+                pos++;
+            }
+            // 제네릭 타입 처리: List<String> 같은 경우
+            if (pos < source.length() && source.charAt(pos) == '<') {
+                int depth = 0;
+                do {
+                    if (source.charAt(pos) == '<') depth++;
+                    else if (source.charAt(pos) == '>') depth--;
+                    pos++;
+                } while (depth > 0 && pos < source.length());
+            }
+            return source.substring(start, pos);
+        }
 
-        private String readBraceBody() {}
+        private String readBraceBody() {
+            int depth = 1;
+            int start = pos;
+            while (pos < source.length() && depth > 0) {
+                if (source.charAt(pos) == '{') depth++;
+                else if (source.charAt(pos) == '}') depth--;
+                if (depth > 0) pos++;
+            }
+            String body = source.substring(start, pos);
+            // pos는 } 를 가리키고 있으므로 한 칸 전진
+            if (pos < source.length()) pos++;
+            return body;
+        }
     }
 
 
