@@ -287,11 +287,180 @@ public class MiniRecordCompiler {
 
         // 정규 생성자.
         private void generateConstructor() {
+
             line("")
+
+            String params = decl.components.stream()
+                    .map( c -> c.type + " " + c.name)
+                    .collect(ollectors.joining(", "));
+
+            line("public " + decl.name + "(" + params + ") {");
+            indent++;
+
+            if (decl.compactConstructorBody != null) {
+                line("사용자 작성 컴팩트 생성자 본문");
+                for (String bodyLine : decl.compactConstructorBody.split("\n")) {
+                    if (!bodyLine.isBlank()) {
+                        line(bodyLine.trim());
+                    }
+                }
+                line("");
+            }
+
+            // 필드 할당은 항상 컴팩트 생성자 본문 "뒤"에 자동 삽입된다.
+            line("컴파일러 자동 삽입")
+            for (RecordComponent comp : decl.components) {
+                line("this."+ comp.name + " = " + comp.name + ";");
+            }
+
+            indent--;
+            line("}");
+            line("");
+        }
+
+        private void generateAccessors() {
+            line("컴파일러 생성;")
+            for (RecordComponent comp: decl.components) {
+                line("public " + comp.type + " " + comp.name + "() {");
+                indent++;
+                line("return this." + comp.name + ";");
+                indent--;
+                line("}");
+                line("");
+            }
+        }
+
+        private void generateToString() {
+            line(" 컴파일러 생성 ")
+            line("@Override")
+            line("public String toString() {");
+            indent++;
+
+            StringBuilder format = new StringBuilder();
+            format.append("return \"").append(decl.name).append("[\"");
+
+            for (int i = 0; i < decl.components.size(); i++) {
+                RecordComponent comp = decl.components.get(i);
+                if ( i > 0 ) format.append(" + \", \"");
+                format.append(" + \"").append(comp.name).append("=\" + this.").append(comp.name);
+            }
+            format.append(" + \"]\";");
+
+            line(format.toString());
+            indent--;
+            line("}");
+            line("");
+        }
+
+        private void generateEquals() {
+            line("// ── 컴파일러 생성: equals ──");
+            line("@Override");
+            line("public boolean equals(Object o) {");
+            indent++;
+            line("if (this == o) return true;");
+            line("if (!(o instanceof " + decl.name + " other)) return false;");
+
+            StringBuilder comparison = new StringBuilder("return ");
+            for (int i = 0; i < decl.components.size(); i++) {
+                RecordComponent comp = decl.rmfjgrp components.get(i);
+                if (i > 0) comparison.append("\n" + "    ".repeat(indent) + "    && ");
+
+                if (comp.isPrimitive()) {
+                    // 원시 타입은 == 비교
+                    comparison.append("this.").append(comp.name)
+                            .append(" == other.").append(comp.name);
+                } else {
+                    // 참조 타입은 Objects.equals (null-safe)
+                    comparison.append("Objects.equals(this.").append(comp.name)
+                            .append(", other.").append(comp.name).append(")");
+                }
+            }
+            comparison.append(";");
+            line(comparison.toString());
+
+            indent--;
+            line("}");
+            line("");
+        }
+
+        private void generateHashCode() {
+            line("// ── 컴파일러 생성: hashCode ──");
+            line("@Override");
+            line("public int hashCode() {");
+            indent++;
+
+            String fields = decl.components.stream()
+                    .map(c -> "this." + c.name)
+                    .collect(Collectors.joining(", "));
+            line("return Objects.hash(" + fields + ");");
+
+            indent--;
+            line("}");
         }
 
         private void line(String text) {
             sb.append("    ".repeat(indent)).append(text).append("\n");
+        }
+    }
+
+    public static void main(String[] args) {
+        String[] testCases = {
+                // 테스트 1: 기본 Record
+                "record Point(int x, int y) {}",
+
+                // 테스트 2: 참조 타입 포함
+                "record Person(String name, int age, String email) {}",
+
+                // 테스트 3: 컴팩트 생성자 + implements
+                """
+            record Range(int lo, int hi) implements Comparable<Range> {
+                if (lo > hi) throw new IllegalArgumentException("lo must be <= hi");
+            }
+            """,
+
+                // 테스트 4: 값 정규화가 있는 컴팩트 생성자
+                """
+            record Name(String first, String last) {
+                first = first.trim().toLowerCase();
+                last = last.trim().toLowerCase();
+            }
+            """
+        };
+
+        for (int i = 0; i < testCases.length; i++) {
+            String source = testCases[i].trim();
+
+            System.out.println("═".repeat(70));
+            System.out.println("  입력 " + (i + 1) + ": " + source.lines().findFirst().orElse(""));
+            System.out.println("═".repeat(70));
+
+            // PHASE 1: 렉싱
+            System.out.println("\n[1단계 - LEXER] 토큰 분리:");
+            Lexer lexer = new Lexer(source);
+            List<Token> tokens = lexer.tokenize();
+            tokens.forEach(t -> System.out.println("  " + t));
+
+            // PHASE 2: 파싱
+            System.out.println("\n[2단계 - PARSER] AST 구성:");
+            Parser parser = new Parser(tokens);
+            RecordDeclaration decl = parser.parse();
+            System.out.println("  클래스명: " + decl.name);
+            System.out.println("  컴포넌트: " + decl.components.stream()
+                    .map(c -> c.type + " " + c.name + (c.isPrimitive() ? " [원시]" : " [참조]"))
+                    .collect(Collectors.joining(", ")));
+            if (!decl.implementsList.isEmpty()) {
+                System.out.println("  구현: " + String.join(", ", decl.implementsList));
+            }
+            if (decl.compactConstructorBody != null) {
+                System.out.println("  컴팩트 생성자: 있음");
+            }
+
+            // PHASE 3: 코드 생성
+            System.out.println("\n[3단계 - CODE GEN] 생성된 Java 코드:");
+            System.out.println("─".repeat(70));
+            CodeGenerator gen = new CodeGenerator(decl);
+            System.out.println(gen.generate());
+            System.out.println();
         }
     }
 }
