@@ -1,4 +1,4 @@
-package com.shoptracker.subscription.application.port.in;
+package com.shoptracker.subscription.application.port.inbound;
 
 import com.shoptracker.subscription.domain.model.Subscription;
 import java.util.Optional;

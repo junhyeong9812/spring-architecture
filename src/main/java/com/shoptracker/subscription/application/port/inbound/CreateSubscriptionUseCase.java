@@ -1,4 +1,4 @@
-package com.shoptracker.subscription.application.port.in;
+package com.shoptracker.subscription.application.port.inbound;
 
 import java.util.UUID;
 
