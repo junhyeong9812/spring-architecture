@@ -21,6 +21,11 @@ public class OrderCommandService implements CreateOrderUseCase {
     private final OrderRepository orderRepository;
     private final ApplicationEventPublisher eventPublisher;
 
+    public OrderCommandService(OrderRepository orderRepository,
+                               ApplicationEventPublisher eventPublisher) {
+        this.orderRepository = orderRepository;
+        this.eventPublisher = eventPublisher;
+    }
     @Override
     public UUID createOrder(String customerName, List<OrderItemRequest> items) {
         List<OrderItem> orderItems = items.stream()
