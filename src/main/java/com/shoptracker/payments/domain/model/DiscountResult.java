@@ -1,4 +1,9 @@
 package com.shoptracker.payments.domain.model;
 
-public record DiscountResult() {
+import com.shoptracker.orders.domain.model.Money;
+
+public record DiscountResult(
+        Money discountAmount,
+        String discountType
+) {
 }
