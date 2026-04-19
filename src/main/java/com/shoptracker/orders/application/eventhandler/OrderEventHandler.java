@@ -5,6 +5,7 @@ import com.shoptracker.orders.domain.port.outbound.OrderRepository;
 import com.shoptracker.orders.domain.model.OrderId;
 import com.shoptracker.shared.events.PaymentApprovedEvent;
 import com.shoptracker.shared.events.PaymentRejectedEvent;
+import com.shoptracker.shared.events.ShipmentCreatedEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.modulith.events.ApplicationModuleListener;
@@ -35,6 +36,16 @@ public class OrderEventHandler {
         orderRepository.findById(new OrderId(event.orderId()))
                 .ifPresent(order -> {
                     order.transitionTo(OrderStatus.CANCELLED);
+                    orderRepository.save(order);
+                });
+    }
+
+    @ApplicationModuleListener
+    public void onShipmentCreated(ShipmentCreatedEvent event) {
+        log.info("Shipment created for order {}, transitioning to SHIPPING", event.orderId());
+        orderRepository.findById(new OrderId(event.orderId()))
+                .ifPresent(order -> {
+                    order.transitionTo(OrderStatus.SHIPPING);
                     orderRepository.save(order);
                 });
     }
