@@ -7,6 +7,7 @@ import com.shoptracker.payments.domain.model.*;
 import com.shoptracker.payments.domain.port.outbound.*;
 import com.shoptracker.shared.events.PaymentApprovedEvent;
 import com.shoptracker.shared.events.PaymentRejectedEvent;
+import io.micrometer.observation.annotation.Observed;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,7 +20,7 @@ import java.util.UUID;
 public class PaymentCommandService implements ProcessPaymentUseCase {
     private final PaymentRepository paymentRepository;
     private final PaymentGateway paymentGateway;
-    private final DiscountPolicy discountPolicy;   // ★ DI가 구독 등급별로 주입!
+    private final DiscountPolicy discountPolicy;
     private final ApplicationEventPublisher eventPublisher;
 
     public PaymentCommandService(PaymentRepository paymentRepository,
@@ -32,7 +33,16 @@ public class PaymentCommandService implements ProcessPaymentUseCase {
         this.eventPublisher = eventPublisher;
     }
 
+    /**
+     *   @Observed: 이 메서드 호출이 자동으로
+     *   - Trace span 생성
+     *   - Timer metric 기록 (처리 시간)
+     *   - Counter metric (호출 횟수)
+     */
     @Override
+    @Observed(name = "payment.process",
+            contextualName = "process-payment",
+            lowCardinalityKeyValues = {"module", "payments"})
     public UUID processPayment(ProcessPaymentCommand command) {
         Money originalAmount = new Money(command.totalAmount());
 
