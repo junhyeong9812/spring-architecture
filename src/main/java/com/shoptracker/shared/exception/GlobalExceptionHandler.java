@@ -1,23 +1,25 @@
 package com.shoptracker.shared.exception;
 
-import jakarta.persistence.EntityNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+import java.net.URI;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 
+@RestControllerAdvice
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(EntityNotFoundException.class)
     public ProblemDetail handleNotFound(EntityNotFoundException ex) {
         ProblemDetail detail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.NOT_FOUND, ex.getMessage()
-        );
+                HttpStatus.NOT_FOUND, ex.getMessage());
         detail.setTitle("Resource Not Found");
+        detail.setType(URI.create("https://shoptracker.dev/errors/not-found"));
         detail.setProperty("timestamp", Instant.now());
         return detail;
     }
@@ -27,6 +29,7 @@ public class GlobalExceptionHandler {
         ProblemDetail detail = ProblemDetail.forStatusAndDetail(
                 HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage());
         detail.setTitle("Business Rule Violation");
+        detail.setType(URI.create("https://shoptracker.dev/errors/business-rule"));
         detail.setProperty("timestamp", Instant.now());
         return detail;
     }

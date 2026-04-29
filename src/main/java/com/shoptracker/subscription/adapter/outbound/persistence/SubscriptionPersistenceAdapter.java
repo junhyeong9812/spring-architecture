@@ -3,9 +3,11 @@ package com.shoptracker.subscription.adapter.outbound.persistence;
 import com.shoptracker.subscription.domain.model.Subscription;
 import com.shoptracker.subscription.domain.model.SubscriptionId;
 import com.shoptracker.subscription.domain.port.outbound.SubscriptionRepository;
+import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
 
+@Repository
 public class SubscriptionPersistenceAdapter implements SubscriptionRepository {
     private final SpringDataSubscriptionRepository jpaRepository;
 
