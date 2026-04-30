@@ -197,11 +197,11 @@ public class OrderController {
 
 ### 2.1 의존성 추가
 
-```kotlin
-// build.gradle.kts 에 추가
+```groovy
+// build.gradle 에 추가
 dependencies {
     // ★ Spring Boot 4: 단일 의존성으로 전체 관찰성 (traces + metrics + logs)
-    implementation("org.springframework.boot:spring-boot-starter-opentelemetry")
+    implementation 'org.springframework.boot:spring-boot-starter-opentelemetry'
 }
 ```
 
@@ -248,7 +248,40 @@ public class PaymentCommandService implements ProcessPaymentUseCase {
               contextualName = "process-payment",
               lowCardinalityKeyValues = {"module", "payments"})
     public UUID processPayment(ProcessPaymentCommand command) {
-        // ... 기존 로직
+        Money originalAmount = new Money(command.totalAmount());
+
+        // ★ discountPolicy는 DI가 구독 등급별로 주입한 것(Phase 2 참고).
+        DiscountResult discount = discountPolicy.calculateDiscount(originalAmount);
+
+        PaymentMethod method = PaymentMethod.valueOf(command.method().toUpperCase());
+        Payment payment = Payment.create(command.orderId(), originalAmount, discount, method);
+
+        GatewayResult result = paymentGateway.process(payment);
+
+        if (result.success()) {
+            payment.approve();
+            paymentRepository.save(payment);
+
+            eventPublisher.publishEvent(new PaymentApprovedEvent(
+                payment.getId().value(), command.orderId(),
+                originalAmount.amount(),
+                discount.discountAmount().amount(),
+                payment.getFinalAmount().amount(),
+                discount.discountType(),
+                method.name().toLowerCase(),
+                Instant.now()
+            ));
+        } else {
+            payment.reject();
+            paymentRepository.save(payment);
+
+            eventPublisher.publishEvent(new PaymentRejectedEvent(
+                payment.getId().value(), command.orderId(),
+                result.message(), Instant.now()
+            ));
+        }
+
+        return payment.getId().value();
     }
 }
 ```
@@ -338,10 +371,10 @@ public class GlobalExceptionHandler {
 
 ### 4.1 의존성 추가
 
-```kotlin
-// build.gradle.kts
+```groovy
+// build.gradle
 dependencies {
-    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.0")
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.0'
 }
 ```
 
@@ -374,7 +407,8 @@ public class OrderController {
     public Map<String, UUID> create(
             @Valid @RequestBody CreateOrderRequest request,
             @RequestHeader("X-Customer-Name") String customerName) {
-        // ...
+        UUID id = commandService.createOrder(customerName, request.items());
+        return Map.of("id", id);
     }
 }
 ```

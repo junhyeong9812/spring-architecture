@@ -604,8 +604,201 @@ CREATE TABLE payments (
 CREATE INDEX idx_payments_order ON payments (order_id);
 ```
 
-> JPA Entity, Mapper, PersistenceAdapter 패턴은 Subscription과 동일하므로 생략.
-> `PaymentJpaEntity`, `PaymentMapper`, `PaymentPersistenceAdapter`를 동일 패턴으로 생성.
+### 6.1 JPA Entity
+
+```java
+// src/main/java/com/shoptracker/payments/adapter/outbound/persistence/PaymentJpaEntity.java
+package com.shoptracker.payments.adapter.outbound.persistence;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.UUID;
+
+/**
+ * ★ 순수 JPA 엔티티. 도메인 모델(Payment)과 분리되어 있다.
+ *   Money 같은 VO는 primitive/BigDecimal로 풀어서 저장한다.
+ *   Mapper가 도메인 ↔ JPA 변환을 담당한다.
+ */
+@Entity
+@Table(name = "payments")
+public class PaymentJpaEntity {
+
+    @Id
+    @Column(name = "id", nullable = false, updatable = false)
+    private UUID id;
+
+    @Column(name = "order_id", nullable = false)
+    private UUID orderId;
+
+    @Column(name = "original_amount", nullable = false, precision = 15, scale = 2)
+    private BigDecimal originalAmount;
+
+    @Column(name = "discount_amount", nullable = false, precision = 15, scale = 2)
+    private BigDecimal discountAmount;
+
+    @Column(name = "final_amount", nullable = false, precision = 15, scale = 2)
+    private BigDecimal finalAmount;
+
+    @Column(name = "method", nullable = false, length = 20)
+    private String method;
+
+    @Column(name = "status", nullable = false, length = 20)
+    private String status;
+
+    @Column(name = "applied_discount_type", nullable = false, length = 50)
+    private String appliedDiscountType;
+
+    @Column(name = "processed_at")
+    private Instant processedAt;
+
+    protected PaymentJpaEntity() {}
+
+    public UUID getId() { return id; }
+    public void setId(UUID id) { this.id = id; }
+    public UUID getOrderId() { return orderId; }
+    public void setOrderId(UUID orderId) { this.orderId = orderId; }
+    public BigDecimal getOriginalAmount() { return originalAmount; }
+    public void setOriginalAmount(BigDecimal originalAmount) { this.originalAmount = originalAmount; }
+    public BigDecimal getDiscountAmount() { return discountAmount; }
+    public void setDiscountAmount(BigDecimal discountAmount) { this.discountAmount = discountAmount; }
+    public BigDecimal getFinalAmount() { return finalAmount; }
+    public void setFinalAmount(BigDecimal finalAmount) { this.finalAmount = finalAmount; }
+    public String getMethod() { return method; }
+    public void setMethod(String method) { this.method = method; }
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
+    public String getAppliedDiscountType() { return appliedDiscountType; }
+    public void setAppliedDiscountType(String appliedDiscountType) { this.appliedDiscountType = appliedDiscountType; }
+    public Instant getProcessedAt() { return processedAt; }
+    public void setProcessedAt(Instant processedAt) { this.processedAt = processedAt; }
+}
+```
+
+### 6.2 Spring Data Repository
+
+```java
+// src/main/java/com/shoptracker/payments/adapter/outbound/persistence/SpringDataPaymentRepository.java
+package com.shoptracker.payments.adapter.outbound.persistence;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.Optional;
+import java.util.UUID;
+
+public interface SpringDataPaymentRepository extends JpaRepository<PaymentJpaEntity, UUID> {
+
+    Optional<PaymentJpaEntity> findByOrderId(UUID orderId);
+}
+```
+
+### 6.3 Mapper — 도메인 ↔ JPA 변환
+
+```java
+// src/main/java/com/shoptracker/payments/adapter/outbound/persistence/PaymentMapper.java
+package com.shoptracker.payments.adapter.outbound.persistence;
+
+import com.shoptracker.orders.domain.model.Money;
+import com.shoptracker.payments.domain.model.Payment;
+import com.shoptracker.payments.domain.model.PaymentId;
+import com.shoptracker.payments.domain.model.PaymentMethod;
+import com.shoptracker.payments.domain.model.PaymentStatus;
+
+/**
+ * ★ 도메인 ↔ JPA 엔티티 매퍼.
+ *   Money(VO)는 amount()로 풀어서 BigDecimal로 저장하고,
+ *   읽을 때는 new Money(...)로 재조립한다.
+ *   enum은 name()/valueOf()로 문자열 변환.
+ */
+public class PaymentMapper {
+
+    public static Payment toDomain(PaymentJpaEntity entity) {
+        return new Payment(
+                new PaymentId(entity.getId()),
+                entity.getOrderId(),
+                new Money(entity.getOriginalAmount()),
+                new Money(entity.getDiscountAmount()),
+                new Money(entity.getFinalAmount()),
+                PaymentMethod.valueOf(entity.getMethod()),
+                PaymentStatus.valueOf(entity.getStatus()),
+                entity.getAppliedDiscountType(),
+                entity.getProcessedAt()
+        );
+    }
+
+    public static PaymentJpaEntity toJpa(Payment domain) {
+        PaymentJpaEntity entity = new PaymentJpaEntity();
+        entity.setId(domain.getId().value());
+        entity.setOrderId(domain.getOrderId());
+        entity.setOriginalAmount(domain.getOriginalAmount().amount());
+        entity.setDiscountAmount(domain.getDiscountAmount().amount());
+        entity.setFinalAmount(domain.getFinalAmount().amount());
+        entity.setMethod(domain.getMethod().name());
+        entity.setStatus(domain.getStatus().name());
+        entity.setAppliedDiscountType(domain.getAppliedDiscountType());
+        entity.setProcessedAt(domain.getProcessedAt());
+        return entity;
+    }
+}
+```
+
+### 6.4 Persistence Adapter — Output Port 구현
+
+```java
+// src/main/java/com/shoptracker/payments/adapter/outbound/persistence/PaymentPersistenceAdapter.java
+package com.shoptracker.payments.adapter.outbound.persistence;
+
+import com.shoptracker.payments.domain.model.Payment;
+import com.shoptracker.payments.domain.model.PaymentId;
+import com.shoptracker.payments.domain.port.outbound.PaymentRepository;
+import org.springframework.stereotype.Component;
+
+import java.util.Optional;
+import java.util.UUID;
+
+/**
+ * ★ Output Port(PaymentRepository)의 실제 구현.
+ *   도메인은 이 클래스의 존재를 모르고, PaymentRepository 인터페이스만 본다.
+ *   JPA/DB를 다른 기술로 바꾸려면 이 어댑터만 교체하면 된다.
+ */
+@Component
+public class PaymentPersistenceAdapter implements PaymentRepository {
+    private final SpringDataPaymentRepository jpaRepository;
+
+    public PaymentPersistenceAdapter(SpringDataPaymentRepository jpaRepository) {
+        this.jpaRepository = jpaRepository;
+    }
+
+    @Override
+    public void save(Payment payment) {
+        jpaRepository.save(PaymentMapper.toJpa(payment));
+    }
+
+    @Override
+    public Optional<Payment> findById(PaymentId id) {
+        return jpaRepository.findById(id.value())
+                .map(PaymentMapper::toDomain);
+    }
+
+    @Override
+    public Optional<Payment> findByOrderId(UUID orderId) {
+        return jpaRepository.findByOrderId(orderId)
+                .map(PaymentMapper::toDomain);
+    }
+}
+```
+
+> **★ 4계층 구조 복기**:
+> 1. `PaymentJpaEntity` — DB 테이블과 1:1 매핑되는 JPA 엔티티 (순수 인프라)
+> 2. `SpringDataPaymentRepository` — Spring Data JPA 인터페이스 (쿼리 선언)
+> 3. `PaymentMapper` — 도메인 모델 ↔ JPA 엔티티 변환 (VO 분해/재조립)
+> 4. `PaymentPersistenceAdapter` — Output Port 구현체, `@Component`로 빈 등록
+>
+> Subscription/Orders/Tracking 모듈도 동일한 4계층 구조를 따른다.
 
 ---
 
@@ -745,10 +938,12 @@ class DiscountPolicyTest {
 // src/test/java/com/shoptracker/integration/PaymentWithSubscriptionTest.java
 package com.shoptracker.integration;
 
+import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -766,6 +961,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class PaymentWithSubscriptionTest {
 
     @Container
+    @ServiceConnection
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16");
 
     @Autowired MockMvc mockMvc;
@@ -793,8 +989,7 @@ class PaymentWithSubscriptionTest {
             .andExpect(status().isCreated())
             .andReturn().getResponse().getContentAsString();
 
-        // orderId 추출 (JSON 파싱)
-        String orderId = /* JsonPath로 추출 */;
+        String orderId = JsonPath.read(orderResponse, "$.id");
 
         // 3. 이벤트 처리 대기 후 결제 확인
         await().atMost(ofSeconds(5)).untilAsserted(() -> {
@@ -819,7 +1014,7 @@ class PaymentWithSubscriptionTest {
             .andExpect(status().isCreated())
             .andReturn().getResponse().getContentAsString();
 
-        String orderId = /* JsonPath로 추출 */;
+        String orderId = JsonPath.read(orderResponse, "$.id");
 
         await().atMost(ofSeconds(5)).untilAsserted(() -> {
             mockMvc.perform(get("/api/v1/payments/order/" + orderId))

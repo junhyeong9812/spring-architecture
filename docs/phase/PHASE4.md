@@ -54,8 +54,29 @@ public class OrderTracking {
             this.completedAt = Instant.now();
         }
     }
+    // Full constructor — JPA Mapper가 DB에서 읽어올 때도 사용한다.
+    public OrderTracking(TrackingId id, UUID orderId, String customerName,
+                         String subscriptionTier, List<TrackingEvent> events,
+                         TrackingPhase currentPhase, Instant startedAt,
+                         Instant completedAt) {
+        this.id = id;
+        this.orderId = orderId;
+        this.customerName = customerName;
+        this.subscriptionTier = subscriptionTier;
+        this.events = events;
+        this.currentPhase = currentPhase;
+        this.startedAt = startedAt;
+        this.completedAt = completedAt;
+    }
 
-    // Constructor, Getters 생략 (위 패턴과 동일)
+    public TrackingId getId() { return id; }
+    public UUID getOrderId() { return orderId; }
+    public String getCustomerName() { return customerName; }
+    public String getSubscriptionTier() { return subscriptionTier; }
+    public List<TrackingEvent> getEvents() { return List.copyOf(events); }
+    public TrackingPhase getCurrentPhase() { return currentPhase; }
+    public Instant getStartedAt() { return startedAt; }
+    public Instant getCompletedAt() { return completedAt; }
 }
 
 // tracking/domain/model/TrackingEvent.java
@@ -245,6 +266,44 @@ public class TrackingController {
 ```
 
 ```java
+// tracking/adapter/in/web/TrackingResponse.java
+package com.shoptracker.tracking.adapter.inbound.web;
+
+import com.shoptracker.tracking.domain.model.OrderTracking;
+
+import java.time.Instant;
+import java.util.UUID;
+
+/**
+ * ★ 간단 조회용 요약 응답. 타임라인(events)은 포함하지 않는다.
+ *   상세 타임라인은 TrackingTimelineResponse 사용.
+ */
+public record TrackingResponse(
+    UUID trackingId,
+    UUID orderId,
+    String customerName,
+    String subscriptionTier,
+    String currentPhase,
+    int eventCount,
+    Instant startedAt,
+    Instant completedAt
+) {
+    public static TrackingResponse from(OrderTracking t) {
+        return new TrackingResponse(
+            t.getId().value(),
+            t.getOrderId(),
+            t.getCustomerName(),
+            t.getSubscriptionTier(),
+            t.getCurrentPhase().name().toLowerCase(),
+            t.getEvents().size(),
+            t.getStartedAt(),
+            t.getCompletedAt()
+        );
+    }
+}
+```
+
+```java
 // tracking/adapter/in/web/TrackingTimelineResponse.java
 public record TrackingTimelineResponse(
     UUID orderId,
@@ -307,7 +366,273 @@ CREATE INDEX idx_tracking_events_tracking ON tracking_events (tracking_id);
 
 ---
 
-## Step 5: 전체 Saga 테스트
+## Step 5: Adapter — Persistence (Tracking)
+
+> Tracking은 `OrderTracking`(Aggregate Root) + `TrackingEvent`(이벤트 목록)의 구조.
+> JPA @OneToMany 컬렉션 매핑으로 이벤트를 함께 영속화한다.
+> `detail: Map<String, Object>`는 JSONB 컬럼에 저장 (Hibernate 6+의 `JdbcTypeCode(SqlTypes.JSON)` 활용).
+
+### 5.1 JPA Entity — OrderTracking
+
+```java
+// src/main/java/com/shoptracker/tracking/adapter/outbound/persistence/TrackingJpaEntity.java
+package com.shoptracker.tracking.adapter.outbound.persistence;
+
+import jakarta.persistence.*;
+
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+
+@Entity
+@Table(name = "order_tracking")
+public class TrackingJpaEntity {
+
+    @Id
+    @Column(name = "id", nullable = false, updatable = false)
+    private UUID id;
+
+    @Column(name = "order_id", nullable = false)
+    private UUID orderId;
+
+    @Column(name = "customer_name", nullable = false)
+    private String customerName;
+
+    @Column(name = "subscription_tier")
+    private String subscriptionTier;
+
+    @Column(name = "current_phase", nullable = false, length = 30)
+    private String currentPhase;
+
+    @Column(name = "started_at", nullable = false)
+    private Instant startedAt;
+
+    @Column(name = "completed_at")
+    private Instant completedAt;
+
+    @OneToMany(mappedBy = "tracking",
+               cascade = CascadeType.ALL,
+               orphanRemoval = true,
+               fetch = FetchType.EAGER)
+    @OrderBy("timestamp ASC")
+    private List<TrackingEventJpaEntity> events = new ArrayList<>();
+
+    protected TrackingJpaEntity() {}
+
+    public void addEvent(TrackingEventJpaEntity event) {
+        events.add(event);
+        event.setTracking(this);
+    }
+
+    public UUID getId() { return id; }
+    public void setId(UUID id) { this.id = id; }
+    public UUID getOrderId() { return orderId; }
+    public void setOrderId(UUID orderId) { this.orderId = orderId; }
+    public String getCustomerName() { return customerName; }
+    public void setCustomerName(String customerName) { this.customerName = customerName; }
+    public String getSubscriptionTier() { return subscriptionTier; }
+    public void setSubscriptionTier(String subscriptionTier) { this.subscriptionTier = subscriptionTier; }
+    public String getCurrentPhase() { return currentPhase; }
+    public void setCurrentPhase(String currentPhase) { this.currentPhase = currentPhase; }
+    public Instant getStartedAt() { return startedAt; }
+    public void setStartedAt(Instant startedAt) { this.startedAt = startedAt; }
+    public Instant getCompletedAt() { return completedAt; }
+    public void setCompletedAt(Instant completedAt) { this.completedAt = completedAt; }
+    public List<TrackingEventJpaEntity> getEvents() { return events; }
+    public void setEvents(List<TrackingEventJpaEntity> events) { this.events = events; }
+}
+```
+
+### 5.2 JPA Entity — TrackingEvent (자식)
+
+```java
+// src/main/java/com/shoptracker/tracking/adapter/outbound/persistence/TrackingEventJpaEntity.java
+package com.shoptracker.tracking.adapter.outbound.persistence;
+
+import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
+import java.time.Instant;
+import java.util.Map;
+import java.util.UUID;
+
+/**
+ * ★ detail 필드는 JSONB로 저장.
+ *   Hibernate 6+ 의 @JdbcTypeCode(SqlTypes.JSON) 으로 Map → JSONB 자동 변환.
+ */
+@Entity
+@Table(name = "tracking_events")
+public class TrackingEventJpaEntity {
+
+    @Id
+    @Column(name = "id", nullable = false, updatable = false)
+    private UUID id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "tracking_id", nullable = false)
+    private TrackingJpaEntity tracking;
+
+    @Column(name = "event_type", nullable = false, length = 50)
+    private String eventType;
+
+    @Column(name = "timestamp", nullable = false)
+    private Instant timestamp;
+
+    @Column(name = "module", nullable = false, length = 50)
+    private String module;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "detail", nullable = false, columnDefinition = "jsonb")
+    private Map<String, Object> detail;
+
+    protected TrackingEventJpaEntity() {}
+
+    public TrackingEventJpaEntity(UUID id, String eventType, Instant timestamp,
+                                   String module, Map<String, Object> detail) {
+        this.id = id;
+        this.eventType = eventType;
+        this.timestamp = timestamp;
+        this.module = module;
+        this.detail = detail;
+    }
+
+    public UUID getId() { return id; }
+    public TrackingJpaEntity getTracking() { return tracking; }
+    public void setTracking(TrackingJpaEntity tracking) { this.tracking = tracking; }
+    public String getEventType() { return eventType; }
+    public Instant getTimestamp() { return timestamp; }
+    public String getModule() { return module; }
+    public Map<String, Object> getDetail() { return detail; }
+}
+```
+
+### 5.3 Spring Data Repository
+
+```java
+// src/main/java/com/shoptracker/tracking/adapter/outbound/persistence/SpringDataTrackingRepository.java
+package com.shoptracker.tracking.adapter.outbound.persistence;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.Optional;
+import java.util.UUID;
+
+public interface SpringDataTrackingRepository extends JpaRepository<TrackingJpaEntity, UUID> {
+
+    Optional<TrackingJpaEntity> findByOrderId(UUID orderId);
+}
+```
+
+### 5.4 Mapper — 도메인 ↔ JPA 변환
+
+```java
+// src/main/java/com/shoptracker/tracking/adapter/outbound/persistence/TrackingMapper.java
+package com.shoptracker.tracking.adapter.outbound.persistence;
+
+import com.shoptracker.tracking.domain.model.OrderTracking;
+import com.shoptracker.tracking.domain.model.TrackingEvent;
+import com.shoptracker.tracking.domain.model.TrackingId;
+import com.shoptracker.tracking.domain.model.TrackingPhase;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+
+/**
+ * ★ Aggregate 매핑의 주의점:
+ *   - JPA 엔티티의 컬렉션(events)은 양방향 관계로 setTracking 연결이 필요하다.
+ *   - 도메인 불변 컬렉션(List.copyOf)은 JPA가 관리하는 List로 풀어준다.
+ */
+public class TrackingMapper {
+
+    public static OrderTracking toDomain(TrackingJpaEntity entity) {
+        List<TrackingEvent> events = entity.getEvents().stream()
+                .map(e -> new TrackingEvent(
+                        e.getEventType(),
+                        e.getTimestamp(),
+                        e.getModule(),
+                        e.getDetail()))
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+
+        return new OrderTracking(
+                new TrackingId(entity.getId()),
+                entity.getOrderId(),
+                entity.getCustomerName(),
+                entity.getSubscriptionTier(),
+                events,
+                TrackingPhase.valueOf(entity.getCurrentPhase()),
+                entity.getStartedAt(),
+                entity.getCompletedAt()
+        );
+    }
+
+    public static TrackingJpaEntity toJpa(OrderTracking domain) {
+        TrackingJpaEntity entity = new TrackingJpaEntity();
+        entity.setId(domain.getId().value());
+        entity.setOrderId(domain.getOrderId());
+        entity.setCustomerName(domain.getCustomerName());
+        entity.setSubscriptionTier(domain.getSubscriptionTier());
+        entity.setCurrentPhase(domain.getCurrentPhase().name());
+        entity.setStartedAt(domain.getStartedAt());
+        entity.setCompletedAt(domain.getCompletedAt());
+
+        for (TrackingEvent e : domain.getEvents()) {
+            entity.addEvent(new TrackingEventJpaEntity(
+                    UUID.randomUUID(),
+                    e.eventType(),
+                    e.timestamp(),
+                    e.module(),
+                    e.detail()
+            ));
+        }
+        return entity;
+    }
+}
+```
+
+### 5.5 Persistence Adapter
+
+```java
+// src/main/java/com/shoptracker/tracking/adapter/outbound/persistence/TrackingPersistenceAdapter.java
+package com.shoptracker.tracking.adapter.outbound.persistence;
+
+import com.shoptracker.tracking.domain.model.OrderTracking;
+import com.shoptracker.tracking.domain.port.outbound.TrackingRepository;
+import org.springframework.stereotype.Component;
+
+import java.util.Optional;
+import java.util.UUID;
+
+@Component
+public class TrackingPersistenceAdapter implements TrackingRepository {
+    private final SpringDataTrackingRepository jpaRepository;
+
+    public TrackingPersistenceAdapter(SpringDataTrackingRepository jpaRepository) {
+        this.jpaRepository = jpaRepository;
+    }
+
+    @Override
+    public void save(OrderTracking tracking) {
+        jpaRepository.save(TrackingMapper.toJpa(tracking));
+    }
+
+    @Override
+    public Optional<OrderTracking> findByOrderId(UUID orderId) {
+        return jpaRepository.findByOrderId(orderId)
+                .map(TrackingMapper::toDomain);
+    }
+}
+```
+
+> **★ Aggregate 저장 시 주의**: `save()` 호출마다 전체 이벤트 컬렉션을 다시 쓴다.
+> 이벤트가 매우 많아지면(수천 건), 별도의 `TrackingEventRepository`를 분리해
+> 이벤트만 append 하는 패턴으로 개선 가능. 학습 단계에서는 현재 구조로 충분.
+
+---
+
+## Step 6: 전체 Saga 테스트
 
 ```java
 // integration/FullSagaIntegrationTest.java
@@ -363,15 +688,39 @@ class FullSagaIntegrationTest {
         // → PaymentRejectedEvent → Order CANCELLED → Tracking FAILED
     }
 
-    // Helper methods
-    private void createSubscription(String name, String tier) throws Exception { /* ... */ }
-    private UUID createOrder(String name, String product, int qty, long price) throws Exception { /* ... */ }
+    // ── Helper methods ──
+
+    private void createSubscription(String name, String tier) throws Exception {
+        mockMvc.perform(post("/api/v1/subscriptions")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"customerName": "%s", "tier": "%s"}
+                    """.formatted(name, tier)))
+            .andExpect(status().isCreated());
+    }
+
+    private UUID createOrder(String name, String product, int qty, long price) throws Exception {
+        String response = mockMvc.perform(post("/api/v1/orders")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("X-Customer-Name", name)
+                .content("""
+                    {
+                      "customerName": "%s",
+                      "items": [{"productName": "%s", "quantity": %d, "unitPrice": %d}]
+                    }
+                    """.formatted(name, product, qty, price)))
+            .andExpect(status().isCreated())
+            .andReturn().getResponse().getContentAsString();
+
+        String idString = JsonPath.read(response, "$.id");
+        return UUID.fromString(idString);
+    }
 }
 ```
 
 ---
 
-## Step 6: Spring Modulith 문서 자동 생성
+## Step 7: Spring Modulith 문서 자동 생성
 
 ```java
 // ModuleStructureTest.java 에 추가

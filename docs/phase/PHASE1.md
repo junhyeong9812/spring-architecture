@@ -78,8 +78,8 @@ dependencies {
     // Testing
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.modulith:spring-modulith-starter-test'
-    testImplementation 'org.testcontainers:junit-jupiter'
-    testImplementation 'org.testcontainers:postgresql'
+    testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
+    testImplementation 'org.testcontainers:testcontainers-postgresql'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
@@ -1107,6 +1107,16 @@ public class OrderNotFoundException extends EntityNotFoundException {
 > 패턴은 Subscription과 동일. UseCase 인터페이스 → Service 구현 → JPA Adapter → Controller.
 
 ```java
+// orders/adapter/inbound/web/OrderItemRequest.java
+package com.shoptracker.orders.adapter.inbound.web;
+
+public record OrderItemRequest(
+        String productName,
+        int quantity,
+        long unitPrice
+) {
+}
+
 // orders/application/port/in/CreateOrderUseCase.java
 public interface CreateOrderUseCase {
     UUID createOrder(String customerName, List<OrderItemRequest> items);
@@ -1118,6 +1128,12 @@ public interface CreateOrderUseCase {
 public class OrderCommandService implements CreateOrderUseCase {
     private final OrderRepository orderRepository;
     private final ApplicationEventPublisher eventPublisher;
+
+    public OrderCommandService(OrderRepository orderRepository,
+                               ApplicationEventPublisher eventPublisher) {
+        this.orderRepository = orderRepository;
+        this.eventPublisher = eventPublisher;
+    }
 
     // ★ Phase 1에서는 이벤트를 발행만. 구독하는 모듈은 Phase 2에서 추가.
     @Override

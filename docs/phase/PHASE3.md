@@ -117,8 +117,8 @@ public enum ShipmentStatus { PREPARING, IN_TRANSIT, DELIVERED }
 ### 1.2 배송비 정책 인터페이스 + 구현체
 
 ```java
-// src/main/java/com/shoptracker/shipping/domain/port/out/ShippingFeePolicy.java
-package com.shoptracker.shipping.domain.port.out;
+// src/main/java/com/shoptracker/shipping/domain/port/outbound/ShippingFeePolicy.java
+package com.shoptracker.shipping.domain.port.outbound;
 
 import com.shoptracker.orders.domain.model.Money;
 import com.shoptracker.shipping.domain.model.ShippingFeeResult;
@@ -148,7 +148,7 @@ package com.shoptracker.shipping.domain.model.policy;
 
 import com.shoptracker.orders.domain.model.Money;
 import com.shoptracker.shipping.domain.model.ShippingFeeResult;
-import com.shoptracker.shipping.domain.port.out.ShippingFeePolicy;
+import com.shoptracker.shipping.domain.port.outbound.ShippingFeePolicy;
 import java.math.BigDecimal;
 
 /** 미구독자: 3,000원, 50,000원 이상 무료 */
@@ -172,7 +172,7 @@ package com.shoptracker.shipping.domain.model.policy;
 
 import com.shoptracker.orders.domain.model.Money;
 import com.shoptracker.shipping.domain.model.ShippingFeeResult;
-import com.shoptracker.shipping.domain.port.out.ShippingFeePolicy;
+import com.shoptracker.shipping.domain.port.outbound.ShippingFeePolicy;
 import java.math.BigDecimal;
 
 public class BasicShippingFeePolicy implements ShippingFeePolicy {
@@ -198,7 +198,7 @@ package com.shoptracker.shipping.domain.model.policy;
 
 import com.shoptracker.orders.domain.model.Money;
 import com.shoptracker.shipping.domain.model.ShippingFeeResult;
-import com.shoptracker.shipping.domain.port.out.ShippingFeePolicy;
+import com.shoptracker.shipping.domain.port.outbound.ShippingFeePolicy;
 import java.math.BigDecimal;
 
 public class PremiumShippingFeePolicy implements ShippingFeePolicy {
@@ -212,6 +212,30 @@ public class PremiumShippingFeePolicy implements ShippingFeePolicy {
 }
 ```
 
+### 1.3 Repository Port (Output Port)
+
+```java
+// src/main/java/com/shoptracker/shipping/domain/port/outbound/ShipmentRepository.java
+package com.shoptracker.shipping.domain.port.outbound;
+
+import com.shoptracker.shipping.domain.model.Shipment;
+import com.shoptracker.shipping.domain.model.ShipmentId;
+
+import java.util.Optional;
+import java.util.UUID;
+
+/**
+ * ★ Output Port: Shipment 영속성 인터페이스.
+ *   도메인이 정의하고, 어댑터(JPA)가 구현 — 의존성 역전.
+ *   Phase 2의 PaymentRepository와 동일한 시그니처 패턴.
+ */
+public interface ShipmentRepository {
+    void save(Shipment shipment);
+    Optional<Shipment> findById(ShipmentId id);
+    Optional<Shipment> findByOrderId(UUID orderId);
+}
+```
+
 ---
 
 ## Step 2: DI 설정 — 배송비 정책 자동 주입
@@ -222,7 +246,7 @@ package com.shoptracker.shipping.internal;
 
 import com.shoptracker.shared.SubscriptionContext;
 import com.shoptracker.shipping.domain.model.policy.*;
-import com.shoptracker.shipping.domain.port.out.ShippingFeePolicy;
+import com.shoptracker.shipping.domain.port.outbound.ShippingFeePolicy;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.context.annotation.RequestScope;
@@ -263,7 +287,7 @@ package com.shoptracker.shipping.application.service;
 import com.shoptracker.orders.domain.model.Money;
 import com.shoptracker.shared.events.ShipmentCreatedEvent;
 import com.shoptracker.shipping.domain.model.*;
-import com.shoptracker.shipping.domain.port.out.*;
+import com.shoptracker.shipping.domain.port.outbound.*;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -387,7 +411,294 @@ public void onShipmentCreated(ShipmentCreatedEvent event) {
 
 ---
 
-## Step 4: Flyway 마이그레이션
+## Step 4: Adapter — Persistence (JPA)
+
+> Phase 1의 Subscription, Phase 2의 Payments와 동일 패턴.
+> 도메인 `Shipment` ↔ JPA `ShipmentJpaEntity` 변환을 어댑터에서 격리.
+
+### 4.1 JPA Entity
+
+```java
+// src/main/java/com/shoptracker/shipping/adapter/outbound/persistence/ShipmentJpaEntity.java
+package com.shoptracker.shipping.adapter.outbound.persistence;
+
+import jakarta.persistence.*;
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.UUID;
+
+/**
+ * ★ JPA 어노테이션은 여기만! 도메인 Shipment 클래스에는 JPA import 없음.
+ *   V4__create_shipments.sql 의 컬럼과 1:1 매핑.
+ */
+@Entity
+@Table(name = "shipments")
+public class ShipmentJpaEntity {
+
+    @Id
+    @Column(name = "id", nullable = false, updatable = false)
+    private UUID id;
+
+    @Column(name = "order_id", nullable = false)
+    private UUID orderId;
+
+    @Column(name = "status", nullable = false)
+    private String status;
+
+    @Column(name = "street")
+    private String street;
+
+    @Column(name = "city")
+    private String city;
+
+    @Column(name = "zip_code")
+    private String zipCode;
+
+    @Column(name = "shipping_fee", nullable = false)
+    private BigDecimal shippingFee;
+
+    @Column(name = "original_fee", nullable = false)
+    private BigDecimal originalFee;
+
+    @Column(name = "fee_discount_type", nullable = false)
+    private String feeDiscountType;
+
+    @Column(name = "tracking_number")
+    private String trackingNumber;
+
+    @Column(name = "estimated_delivery")
+    private LocalDate estimatedDelivery;
+
+    @Column(name = "created_at", nullable = false)
+    private Instant createdAt;
+
+    protected ShipmentJpaEntity() {} // JPA용
+
+    public UUID getId() { return id; }
+    public void setId(UUID id) { this.id = id; }
+    public UUID getOrderId() { return orderId; }
+    public void setOrderId(UUID orderId) { this.orderId = orderId; }
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
+    public String getStreet() { return street; }
+    public void setStreet(String street) { this.street = street; }
+    public String getCity() { return city; }
+    public void setCity(String city) { this.city = city; }
+    public String getZipCode() { return zipCode; }
+    public void setZipCode(String zipCode) { this.zipCode = zipCode; }
+    public BigDecimal getShippingFee() { return shippingFee; }
+    public void setShippingFee(BigDecimal shippingFee) { this.shippingFee = shippingFee; }
+    public BigDecimal getOriginalFee() { return originalFee; }
+    public void setOriginalFee(BigDecimal originalFee) { this.originalFee = originalFee; }
+    public String getFeeDiscountType() { return feeDiscountType; }
+    public void setFeeDiscountType(String feeDiscountType) { this.feeDiscountType = feeDiscountType; }
+    public String getTrackingNumber() { return trackingNumber; }
+    public void setTrackingNumber(String trackingNumber) { this.trackingNumber = trackingNumber; }
+    public LocalDate getEstimatedDelivery() { return estimatedDelivery; }
+    public void setEstimatedDelivery(LocalDate estimatedDelivery) { this.estimatedDelivery = estimatedDelivery; }
+    public Instant getCreatedAt() { return createdAt; }
+    public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
+}
+```
+
+### 4.2 Spring Data Repository
+
+```java
+// src/main/java/com/shoptracker/shipping/adapter/outbound/persistence/SpringDataShipmentRepository.java
+package com.shoptracker.shipping.adapter.outbound.persistence;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import java.util.Optional;
+import java.util.UUID;
+
+public interface SpringDataShipmentRepository extends JpaRepository<ShipmentJpaEntity, UUID> {
+    Optional<ShipmentJpaEntity> findByOrderId(UUID orderId);
+}
+```
+
+### 4.3 Mapper
+
+```java
+// src/main/java/com/shoptracker/shipping/adapter/outbound/persistence/ShipmentMapper.java
+package com.shoptracker.shipping.adapter.outbound.persistence;
+
+import com.shoptracker.orders.domain.model.Money;
+import com.shoptracker.shipping.domain.model.*;
+
+/**
+ * ★ 도메인 ↔ JPA 변환. 도메인이 JPA에 오염되지 않도록 어댑터에서 격리.
+ */
+public class ShipmentMapper {
+
+    public static Shipment toDomain(ShipmentJpaEntity e) {
+        return new Shipment(
+            new ShipmentId(e.getId()),
+            e.getOrderId(),
+            ShipmentStatus.valueOf(e.getStatus()),
+            new Address(e.getStreet(), e.getCity(), e.getZipCode()),
+            new Money(e.getShippingFee()),
+            new Money(e.getOriginalFee()),
+            e.getFeeDiscountType(),
+            e.getTrackingNumber(),
+            e.getEstimatedDelivery(),
+            e.getCreatedAt()
+        );
+    }
+
+    public static ShipmentJpaEntity toJpa(Shipment d) {
+        ShipmentJpaEntity e = new ShipmentJpaEntity();
+        e.setId(d.getId().value());
+        e.setOrderId(d.getOrderId());
+        e.setStatus(d.getStatus().name());
+        Address a = d.getAddress();
+        e.setStreet(a.street());
+        e.setCity(a.city());
+        e.setZipCode(a.zipCode());
+        e.setShippingFee(d.getShippingFee().amount());
+        e.setOriginalFee(d.getOriginalFee().amount());
+        e.setFeeDiscountType(d.getFeeDiscountType());
+        e.setTrackingNumber(d.getTrackingNumber());
+        e.setEstimatedDelivery(d.getEstimatedDelivery());
+        e.setCreatedAt(d.getCreatedAt());
+        return e;
+    }
+}
+```
+
+### 4.4 Persistence Adapter (Output Port 구현)
+
+```java
+// src/main/java/com/shoptracker/shipping/adapter/outbound/persistence/ShipmentPersistenceAdapter.java
+package com.shoptracker.shipping.adapter.outbound.persistence;
+
+import com.shoptracker.shipping.domain.model.Shipment;
+import com.shoptracker.shipping.domain.model.ShipmentId;
+import com.shoptracker.shipping.domain.port.outbound.ShipmentRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.Optional;
+import java.util.UUID;
+
+/**
+ * ★ ShipmentRepository(도메인 인터페이스)를 구현.
+ *   내부에서 SpringDataShipmentRepository(JPA)를 사용 — 의존성 역전.
+ */
+@Repository
+public class ShipmentPersistenceAdapter implements ShipmentRepository {
+    private final SpringDataShipmentRepository jpaRepository;
+
+    public ShipmentPersistenceAdapter(SpringDataShipmentRepository jpaRepository) {
+        this.jpaRepository = jpaRepository;
+    }
+
+    @Override
+    public void save(Shipment shipment) {
+        jpaRepository.save(ShipmentMapper.toJpa(shipment));
+    }
+
+    @Override
+    public Optional<Shipment> findById(ShipmentId id) {
+        return jpaRepository.findById(id.value())
+            .map(ShipmentMapper::toDomain);
+    }
+
+    @Override
+    public Optional<Shipment> findByOrderId(UUID orderId) {
+        return jpaRepository.findByOrderId(orderId)
+            .map(ShipmentMapper::toDomain);
+    }
+}
+```
+
+---
+
+## Step 5: Adapter — Web (REST Controller)
+
+```java
+// src/main/java/com/shoptracker/shipping/adapter/inbound/web/ShipmentController.java
+package com.shoptracker.shipping.adapter.inbound.web;
+
+import com.shoptracker.shared.exception.EntityNotFoundException;
+import com.shoptracker.shipping.domain.model.ShipmentId;
+import com.shoptracker.shipping.domain.port.outbound.ShipmentRepository;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.UUID;
+
+@RestController
+@RequestMapping("/api/v1/shipping")
+public class ShipmentController {
+    private final ShipmentRepository shipmentRepository;
+
+    public ShipmentController(ShipmentRepository shipmentRepository) {
+        this.shipmentRepository = shipmentRepository;
+    }
+
+    @GetMapping("/{id}")
+    public ShipmentResponse getById(@PathVariable UUID id) {
+        return shipmentRepository.findById(new ShipmentId(id))
+            .map(ShipmentResponse::from)
+            .orElseThrow(() -> new EntityNotFoundException("Shipment not found: " + id));
+    }
+
+    @GetMapping("/order/{orderId}")
+    public ShipmentResponse getByOrderId(@PathVariable UUID orderId) {
+        return shipmentRepository.findByOrderId(orderId)
+            .map(ShipmentResponse::from)
+            .orElseThrow(() -> new EntityNotFoundException(
+                "Shipment not found for order: " + orderId));
+    }
+}
+```
+
+```java
+// src/main/java/com/shoptracker/shipping/adapter/inbound/web/ShipmentResponse.java
+package com.shoptracker.shipping.adapter.inbound.web;
+
+import com.shoptracker.shipping.domain.model.Shipment;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.UUID;
+
+public record ShipmentResponse(
+    UUID id,
+    UUID orderId,
+    String status,
+    String street,
+    String city,
+    String zipCode,
+    BigDecimal shippingFee,
+    BigDecimal originalFee,
+    String feeDiscountType,
+    String trackingNumber,
+    LocalDate estimatedDelivery,
+    Instant createdAt
+) {
+    public static ShipmentResponse from(Shipment s) {
+        return new ShipmentResponse(
+            s.getId().value(),
+            s.getOrderId(),
+            s.getStatus().name().toLowerCase(),
+            s.getAddress().street(),
+            s.getAddress().city(),
+            s.getAddress().zipCode(),
+            s.getShippingFee().amount(),
+            s.getOriginalFee().amount(),
+            s.getFeeDiscountType(),
+            s.getTrackingNumber(),
+            s.getEstimatedDelivery(),
+            s.getCreatedAt()
+        );
+    }
+}
+```
+
+---
+
+## Step 6: Flyway 마이그레이션
 
 ```sql
 -- src/main/resources/db/migration/V4__create_shipments.sql
@@ -411,9 +722,9 @@ CREATE INDEX idx_shipments_order ON shipments (order_id);
 
 ---
 
-## Step 5: 테스트
+## Step 7: 테스트
 
-### 5.1 단위 테스트 — 배송비 정책
+### 7.1 단위 테스트 — 배송비 정책
 
 ```java
 // src/test/java/com/shoptracker/unit/ShippingFeePolicyTest.java
@@ -484,50 +795,103 @@ class ShippingFeePolicyTest {
 }
 ```
 
-### 5.2 통합 테스트
+### 7.2 통합 테스트
 
 ```java
 // src/test/java/com/shoptracker/integration/ShippingWithSubscriptionTest.java
+package com.shoptracker.integration;
 
-@Test
-void premiumSubscriber_freeShipping_evenSmallOrder() throws Exception {
-    // 1. Premium 구독 생성
-    createSubscription("VIP", "premium");
+import com.jayway.jsonpath.JsonPath;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
-    // 2. 소액 주문
-    UUID orderId = createOrder("VIP", "볼펜", 1, 1000);
+import static org.awaitility.Awaitility.*;
+import static java.time.Duration.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-    // 3. 결제 승인 대기 → 배송 자동 생성
-    await().atMost(ofSeconds(5)).untilAsserted(() -> {
-        mockMvc.perform(get("/api/v1/shipping/order/" + orderId))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.shippingFee").value(0))
-            .andExpect(jsonPath("$.feeDiscountType").value("premium_free"));
-    });
-}
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureMockMvc
+@Testcontainers
+class ShippingWithSubscriptionTest {
 
-@Test
-void basicSubscriber_halfFee_under30000() throws Exception {
-    createSubscription("김기본", "basic");
-    UUID orderId = createOrder("김기본", "마우스", 1, 20000);
+    @Container
+    @ServiceConnection
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16");
 
-    await().atMost(ofSeconds(5)).untilAsserted(() -> {
-        mockMvc.perform(get("/api/v1/shipping/order/" + orderId))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.shippingFee").value(1500));
-    });
-}
+    @Autowired MockMvc mockMvc;
 
-@Test
-void basicSubscriber_freeShipping_over30000() throws Exception {
-    createSubscription("김기본2", "basic");
-    UUID orderId = createOrder("김기본2", "키보드", 2, 20000);  // 40,000원
+    @Test
+    void premiumSubscriber_freeShipping_evenSmallOrder() throws Exception {
+        createSubscription("VIP", "premium");
+        String orderId = createOrder("VIP", "볼펜", 1, 1000);
 
-    await().atMost(ofSeconds(5)).untilAsserted(() -> {
-        mockMvc.perform(get("/api/v1/shipping/order/" + orderId))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.shippingFee").value(0));
-    });
+        // 결제 승인 → 배송 자동 생성 대기
+        await().atMost(ofSeconds(5)).untilAsserted(() -> {
+            mockMvc.perform(get("/api/v1/shipping/order/" + orderId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.shippingFee").value(0))
+                .andExpect(jsonPath("$.feeDiscountType").value("premium_free"));
+        });
+    }
+
+    @Test
+    void basicSubscriber_halfFee_under30000() throws Exception {
+        createSubscription("김기본", "basic");
+        String orderId = createOrder("김기본", "마우스", 1, 20000);
+
+        await().atMost(ofSeconds(5)).untilAsserted(() -> {
+            mockMvc.perform(get("/api/v1/shipping/order/" + orderId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.shippingFee").value(1500));
+        });
+    }
+
+    @Test
+    void basicSubscriber_freeShipping_over30000() throws Exception {
+        createSubscription("김기본2", "basic");
+        String orderId = createOrder("김기본2", "키보드", 2, 20000);  // 40,000원
+
+        await().atMost(ofSeconds(5)).untilAsserted(() -> {
+            mockMvc.perform(get("/api/v1/shipping/order/" + orderId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.shippingFee").value(0));
+        });
+    }
+
+    private void createSubscription(String customerName, String tier) throws Exception {
+        mockMvc.perform(post("/api/v1/subscriptions")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"customerName": "%s", "tier": "%s"}
+                    """.formatted(customerName, tier)))
+            .andExpect(status().isCreated());
+    }
+
+    private String createOrder(String customerName, String productName,
+                               int quantity, int unitPrice) throws Exception {
+        String response = mockMvc.perform(post("/api/v1/orders")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("X-Customer-Name", customerName)
+                .content("""
+                    {
+                      "customerName": "%s",
+                      "items": [{"productName": "%s", "quantity": %d, "unitPrice": %d}]
+                    }
+                    """.formatted(customerName, productName, quantity, unitPrice)))
+            .andExpect(status().isCreated())
+            .andReturn().getResponse().getContentAsString();
+
+        return JsonPath.read(response, "$.id");
+    }
 }
 ```
 

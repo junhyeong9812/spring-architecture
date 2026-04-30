@@ -28,7 +28,7 @@
 FROM eclipse-temurin:21-jdk AS builder
 
 WORKDIR /app
-COPY build.gradle.kts settings.gradle.kts gradlew ./
+COPY build.gradle settings.gradle gradlew ./
 COPY gradle/ gradle/
 
 # 의존성 캐싱
@@ -220,12 +220,14 @@ spring.threads.virtual.enabled: true
 
 ## Step 5: (선택) GraalVM 네이티브 이미지
 
-### 5.1 build.gradle.kts 수정
+### 5.1 build.gradle 수정
 
-```kotlin
+```groovy
 plugins {
-    // ... 기존 플러그인
-    id("org.graalvm.buildtools.native") version "0.10.4"
+    id 'java'
+    id 'org.springframework.boot' version '4.0.2'
+    id 'io.spring.dependency-management' version '1.1.7'
+    id 'org.graalvm.buildtools.native' version '0.10.4'   // ★ 추가
 }
 ```
 
@@ -314,7 +316,7 @@ shoptracker/
 ├── docker-compose.yml
 ├── Dockerfile
 ├── Dockerfile.native (선택)
-├── build.gradle.kts
+├── build.gradle
 ├── src/main/java/com/shoptracker/
 │   ├── ShopTrackerApplication.java
 │   ├── shared/          # 이벤트, SubscriptionContext, 설정, 에러 핸들링
