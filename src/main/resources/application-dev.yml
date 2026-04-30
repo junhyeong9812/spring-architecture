@@ -3,3 +3,20 @@ spring:
     show-sql: true
   flyway:
     clean-disabled: false
+  threads:
+    virtual:
+      enabled: true
+
+logging:
+  level:
+    com.shoptracker: DEBUG
+    org.springframework.modulith: DEBUG
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"
+  tracing:
+    sampling:
+      probability: 1.0

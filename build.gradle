@@ -37,11 +37,16 @@ dependencies {
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
 
+    implementation("org.springframework.boot:spring-boot-starter-opentelemetry")
+    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.0")
+
     // Testing
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.boot:spring-boot-webmvc-test'
+    testImplementation 'com.jayway.jsonpath:json-path'
     testImplementation 'org.springframework.modulith:spring-modulith-starter-test'
-    testImplementation 'org.testcontainers:junit-jupiter'
-    testImplementation 'org.testcontainers:postgresql'
+    testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
+    testImplementation 'org.testcontainers:testcontainers-postgresql'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     testImplementation 'org.awaitility:awaitility'
     testImplementation 'org.springframework.boot:spring-boot-testcontainers'
