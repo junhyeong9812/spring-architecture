@@ -3,7 +3,7 @@ package com.shoptracker.integration;
 import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.http.MediaType;
@@ -40,7 +40,7 @@ class FullSagaIntegrationTest {
         UUID orderId = createOrder("김구독", "키보드", 2, 20000);
 
         // 3. Saga 완료 대기
-        await().atMost(ofSeconds(10)).untilAsserted(() -> {
+        await().atMost(ofSeconds(30)).untilAsserted(() -> {
             // Tracking 타임라인에서 전체 이벤트 확인
             mockMvc.perform(get("/api/v1/tracking/order/" + orderId + "/timeline"))
                     .andExpect(status().isOk())

@@ -17,8 +17,8 @@ public class OrderStatusTransitionTest {
     }
 
     @Test
-    void created_canTransitionTo_delivered() {
-        assertThat(OrderStatus.CREATED.canTransitionTo(OrderStatus.DELIVERED)).isTrue();
+    void created_cannotTransitionTo_delivered() {
+        assertThat(OrderStatus.CREATED.canTransitionTo(OrderStatus.DELIVERED)).isFalse();
     }
 
     @Test

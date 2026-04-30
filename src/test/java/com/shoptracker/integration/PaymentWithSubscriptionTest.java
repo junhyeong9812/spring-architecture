@@ -1,8 +1,9 @@
 package com.shoptracker.integration;
 
+import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.http.MediaType;
@@ -51,7 +52,7 @@ class PaymentWithSubscriptionTest {
                 .andReturn().getResponse().getContentAsString();
 
         // orderId 추출 (JSON 파싱)
-        String orderId = /* JsonPath로 추출 */;
+        String orderId = JsonPath.read(orderResponse, "$.id");
 
         // 3. 이벤트 처리 대기 후 결제 확인
         await().atMost(ofSeconds(5)).untilAsserted(() -> {
@@ -76,7 +77,7 @@ class PaymentWithSubscriptionTest {
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
 
-        String orderId = /* JsonPath로 추출 */;
+        String orderId = JsonPath.read(orderResponse, "$.id");
 
         await().atMost(ofSeconds(5)).untilAsserted(() -> {
             mockMvc.perform(get("/api/v1/payments/order/" + orderId))
