@@ -324,6 +324,38 @@ Spring Modulith는 이벤트를 DB에 저장하여, 처리 실패 시 자동 재
 
 ---
 
+## 문서 인덱스
+
+### Phase 가이드 (`docs/phase/`)
+- `PHASE1.md` ~ `PHASE6.md` — 단계별 구현 가이드
+- `PHASE5_fix.md` — Phase 5 누락 항목 7건 분석
+- **`PHASE_END.md`** — 누락된 모든 내용 보강 + Spring Boot 3→4 마이그레이션 + 모듈 경계 위반 해소 + 테스트 결과 종합. 이 코드베이스를 동작 가능하게 만든 모든 변경의 단일 소스.
+
+### Study 문서 (`docs/study/`) — 사용된 기술/개념 정리
+- `spring-boot.md` / `java-21.md` / `spring-ioc-di.md`
+- `spring-application-events.md` / `spring-modulith.md` / `spring-data-jpa.md`
+- `flyway.md` / `testing-stack.md`
+- `tomcat-virtual-threads.md` / `opentelemetry.md` / `graalvm-native.md`
+- `cqrs-and-hexagonal.md`
+- `observability-concepts.md` — 트레이싱/샘플링/exemplar/카디널리티
+- `resilience-patterns.md` — Circuit Breaker, Retry, Bulkhead, Rate Limiter
+- `health-library.md` — Spring Boot Health/Actuator
+
+---
+
+## 현재 테스트 상태
+
+```
+./gradlew test
+42 tests, 39 PASS / 3 FAIL
+```
+
+**통과 (39)**: 모든 단위 테스트(30개), 모듈 경계 검증, 컨텍스트 로드, 핵심 결제/배송 통합 테스트.
+
+**잔여 실패 (3)**: Spring Boot 4 환경에서의 타이밍/모듈 격리 이슈. 자세한 분석은 `docs/phase/PHASE_END.md` 16절.
+
+---
+
 ## License
 
 MIT
